@@ -139,6 +139,88 @@ class EnergySeriesTests(TestCase):
         with self.assertRaises(ValueError):
             consumption_kwh(self.samples, 2, "today", self.now, bucket_minutes=100)
 
+    def test_huge_integer_sample_returns_unknown_without_overflow(self):
+        self.samples[0]["v"][15] = 10**1000
+        self.assertIsNone(consumption_kwh(self.samples, 2, "today", self.now))
+
+    def test_sum_overflow_in_yesterday_or_today_returns_unknown(self):
+        self.samples[0]["v"][5] = 1e308
+        self.samples[0]["v"][6] = 1e308
+        self.samples[1]["v"][-1] = 1e308
+        self.assertIsNone(consumption_kwh(self.samples, 2, "today", self.now))
+
+        self.samples[0]["v"][5] = 2.4
+        self.samples[0]["v"][6] = 0.0
+        self.samples[1]["v"][-1] = 2.4
+        self.samples[0]["v"][15] = 1e308
+        self.samples[0]["v"][17] = 1e308
+        self.assertIsNone(consumption_kwh(self.samples, 2, "today", self.now))
+
+    def test_sum_overflow_in_month_or_year_returns_unknown(self):
+        self.samples[1]["v"] = [1e308] * 19 + [2.4]
+        self.assertIsNone(consumption_kwh(self.samples, 2, "current_month", self.now))
+
+        self.samples[1]["v"] = [1.0] * 19 + [2.4]
+        self.samples[2]["v"] = [1e308] * 8 + [31.5]
+        self.assertIsNone(consumption_kwh(self.samples, 2, "current_year", self.now))
+
+    def test_malformed_cloud_record_returns_unknown(self):
+        self.assertIsNone(
+            consumption_kwh([None, *self.samples], 2, "today", self.now)
+        )
+
+    def test_last_minute_before_month_rollover(self):
+        buckets = [0.0] * 24
+        buckets[4] = 2.4  # last completed day: October 30
+        buckets[18] = 1.0  # current day: October 31
+        sequences = [
+            {"k": 2, "p": 1, "v": buckets},
+            {"k": 2, "p": 3, "v": [2.4]},
+        ]
+        self.assertEqual(
+            consumption_kwh(sequences, 2, "today", datetime(2026, 10, 31, 23, 59)),
+            1.0,
+        )
+
+    def test_midnight_month_rollover_with_fresh_reporting_window(self):
+        buckets = [0.0] * 24
+        buckets[16] = 1.0  # October 31, now the completed previous day
+        buckets[23] = 0.2  # November 1
+        sequences = [
+            {"k": 2, "p": 1, "v": buckets},
+            {"k": 2, "p": 3, "v": [1.0]},
+            {"k": 2, "p": 4, "v": [5.0] * 9 + [43.2]},
+        ]
+        for moment in (
+            datetime(2026, 11, 1, 0, 0),
+            datetime(2026, 11, 1, 0, 0, 1),
+        ):
+            with self.subTest(moment=moment):
+                self.assertEqual(
+                    consumption_kwh(sequences, 2, "today", moment), 0.2
+                )
+                self.assertEqual(
+                    consumption_kwh(sequences, 2, "current_month", moment), 0.2
+                )
+                self.assertEqual(
+                    consumption_kwh(sequences, 2, "previous_month", moment), 43.2
+                )
+                self.assertEqual(
+                    consumption_kwh(sequences, 2, "current_year", moment), 88.4
+                )
+
+    def test_stale_reporting_window_at_midnight_is_rejected(self):
+        buckets = [0.0] * 24
+        buckets[4] = 2.4  # old previous day
+        buckets[18] = 1.0  # old current day
+        sequences = [
+            {"k": 2, "p": 1, "v": buckets},
+            {"k": 2, "p": 3, "v": [2.4]},
+        ]
+        self.assertIsNone(
+            consumption_kwh(sequences, 2, "today", datetime(2026, 11, 1, 0, 0))
+        )
+
     def test_unknown_period_raises(self):
         with self.assertRaises(ValueError):
             consumption_kwh(self.samples, 2, "lifetime", self.now)

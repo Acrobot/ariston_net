@@ -25,12 +25,22 @@ Period = Literal["today", "current_month", "previous_month", "current_year"]
 
 def _is_valid_kwh(value: object) -> bool:
     """Accept only finite, non-negative numeric energy readings."""
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and isfinite(value)
-        and value >= 0
-    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        return False
+    try:
+        return isfinite(value)
+    except OverflowError:
+        # math.isfinite converts integers to float; huge integers may overflow.
+        return False
+
+
+def _sum_kwh(samples: Iterable[float]) -> float | None:
+    """Return a finite energy total, or None for unrepresentable sums."""
+    try:
+        total = fsum(samples)
+    except (OverflowError, ValueError):
+        return None
+    return total if isfinite(total) and total >= 0 else None
 
 
 def _consumption_samples(
@@ -38,6 +48,9 @@ def _consumption_samples(
 ) -> list[float] | None:
     """Find a consumption series and validate all its samples."""
     for sequence in sequences:
+        if not isinstance(sequence, Mapping):
+            # Treat malformed cloud records as missing data, not an exception.
+            return None
         if (sequence.get(SEQUENCE_TYPE_KEY), sequence.get(SEQUENCE_PERIOD_KEY)) != (
             consumption_type,
             period_code,
@@ -89,12 +102,13 @@ def _today_kwh(
         return None
 
     today = buckets[-today_slots:]
-    if abs(fsum(yesterday) - days[-1]) > 0.1:
+    yesterday_total = _sum_kwh(yesterday)
+    if yesterday_total is None or abs(yesterday_total - days[-1]) > 0.1:
         return None
     if days[-1] == 0 and any(today):
         # A zero previous day cannot distinguish alternate bucket layouts.
         return None
-    return fsum(today)
+    return _sum_kwh(today)
 
 
 def consumption_kwh(
@@ -133,9 +147,14 @@ def consumption_kwh(
     if finished_days:
         if days is None or len(days) < finished_days:
             return None
-        month = fsum(days[-finished_days:]) + today
+        completed_days = _sum_kwh(days[-finished_days:])
+        if completed_days is None:
+            return None
+        month = _sum_kwh((completed_days, today))
     else:
         month = today
+    if month is None:
+        return None
     if period == "current_month":
         return round(month, 3)
 
@@ -145,4 +164,5 @@ def consumption_kwh(
     months = _consumption_samples(sequences, consumption_type, 4)
     if months is None or len(months) < finished_months:
         return None
-    return round(fsum(months[-finished_months:]) + month, 3)
+    year = _sum_kwh((*months[-finished_months:], month))
+    return round(year, 3) if year is not None else None
