@@ -152,6 +152,7 @@ class AristonSensorEntityDescription(
     get_native_unit_of_measurement: Callable[[Any], str] | None = None
     get_last_reset: Callable[[Any], dt.datetime] | None = None
     get_native_value: Callable[[Any], Any]
+    legacy_unique_id_name: str | None = None
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -413,7 +414,9 @@ ARISTON_SENSOR_TYPES: list[AristonSensorEntityDescription] = [
     # continuously increasing lifetime meter. Avoid HA cumulative statistics.
     AristonSensorEntityDescription(
         key="Domestic hot water energy today",
-        name=f"{NAME} domestic hot water energy today",
+        has_entity_name=True,
+        translation_key="dhw_energy_today",
+        legacy_unique_id_name=f"{NAME} domestic hot water energy today",
         icon="mdi:lightning-bolt",
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENERGY,
@@ -427,7 +430,9 @@ ARISTON_SENSOR_TYPES: list[AristonSensorEntityDescription] = [
     ),
     AristonSensorEntityDescription(
         key="Domestic hot water energy current month",
-        name=f"{NAME} domestic hot water energy current month",
+        has_entity_name=True,
+        translation_key="dhw_energy_current_month",
+        legacy_unique_id_name=f"{NAME} domestic hot water energy current month",
         icon="mdi:lightning-bolt",
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENERGY,
@@ -441,7 +446,9 @@ ARISTON_SENSOR_TYPES: list[AristonSensorEntityDescription] = [
     ),
     AristonSensorEntityDescription(
         key="Domestic hot water energy previous month",
-        name=f"{NAME} domestic hot water energy previous month",
+        has_entity_name=True,
+        translation_key="dhw_energy_previous_month",
+        legacy_unique_id_name=f"{NAME} domestic hot water energy previous month",
         icon="mdi:lightning-bolt",
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENERGY,
@@ -455,7 +462,9 @@ ARISTON_SENSOR_TYPES: list[AristonSensorEntityDescription] = [
     ),
     AristonSensorEntityDescription(
         key="Domestic hot water energy current year",
-        name=f"{NAME} domestic hot water energy current year",
+        has_entity_name=True,
+        translation_key="dhw_energy_current_year",
+        legacy_unique_id_name=f"{NAME} domestic hot water energy current year",
         icon="mdi:lightning-bolt",
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.ENERGY,
