@@ -93,22 +93,40 @@ def _today_kwh(
     minute_of_day = local_now.hour * 60 + local_now.minute
     if local_now.second or local_now.microsecond:
         minute_of_day += 1
-    today_slots = min(
-        buckets_per_day,
-        minute_of_day // bucket_minutes + int(minute_of_day % bucket_minutes != 0) + 1,
-    )
-    yesterday = buckets[-today_slots - buckets_per_day : -today_slots]
-    if len(yesterday) != buckets_per_day:
-        return None
 
-    today = buckets[-today_slots:]
-    yesterday_total = _sum_kwh(yesterday)
-    if yesterday_total is None or abs(yesterday_total - days[-1]) > 0.1:
+    # The cloud may include a provisional bucket around the current interval
+    # boundary. Check both adjacent alignments against the daily report.
+    completed_slots = min(
+        buckets_per_day,
+        (minute_of_day + bucket_minutes - 1) // bucket_minutes,
+    )
+    candidate_slots = {
+        max(1, completed_slots),
+        min(buckets_per_day, completed_slots + 1),
+    }
+    valid_totals: list[float] = []
+    for slots in candidate_slots:
+        yesterday = buckets[-slots - buckets_per_day : -slots]
+        if len(yesterday) != buckets_per_day:
+            continue
+        yesterday_total = _sum_kwh(yesterday)
+        if yesterday_total is None or abs(yesterday_total - days[-1]) > 0.1:
+            continue
+        today_total = _sum_kwh(buckets[-slots:])
+        if today_total is None:
+            continue
+        if days[-1] == 0 and today_total > 0:
+            # No nonzero anchor: bucket alignment cannot be confirmed.
+            continue
+        valid_totals.append(today_total)
+
+    if not valid_totals:
         return None
-    if days[-1] == 0 and any(today):
-        # A zero previous day cannot distinguish alternate bucket layouts.
+    # Matching the daily value is not enough if different alignments imply
+    # different consumption today. Fail closed in that case.
+    if max(valid_totals) - min(valid_totals) > 0.001:
         return None
-    return _sum_kwh(today)
+    return valid_totals[0]
 
 
 def consumption_kwh(

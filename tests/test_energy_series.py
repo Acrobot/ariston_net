@@ -221,6 +221,37 @@ class EnergySeriesTests(TestCase):
             consumption_kwh(sequences, 2, "today", datetime(2026, 11, 1, 0, 0))
         )
 
+    def test_api_daily_alignment_without_provisional_bucket(self):
+        """Actual next-day pattern: prior-day total matches one slot earlier."""
+        buckets = [
+            1.85, 0.2, 0.0, 0.0, 0.175, 0.0, 0.2, 0.175,
+            0.0, 0.0, 0.175, 0.325, 0.175, 0.175, 0.0, 0.125,
+            0.175, 2.0, 0.2, 0.0, 0.0, 0.175, 0.0, 1.975,
+        ]
+        sequences = [
+            {"k": 2, "p": 1, "v": buckets},
+            {"k": 2, "p": 3, "v": [3.525]},
+        ]
+        self.assertEqual(
+            consumption_kwh(sequences, 2, "today", datetime(2026, 10, 22, 11, 10)),
+            2.35,
+        )
+
+    def test_different_valid_alignments_with_different_totals_fail_closed(self):
+        buckets = [0.0] * 24
+        buckets[5] = 2.0
+        buckets[17] = 2.0
+        buckets[23] = 0.5
+        sequences = [
+            {"k": 2, "p": 1, "v": buckets},
+            {"k": 2, "p": 3, "v": [2.0]},
+        ]
+        # At 11:10, yesterday may end at slot 17 or 18. Both can
+        # appear consistent, but the candidate 'today' totals differ.
+        self.assertIsNone(
+            consumption_kwh(sequences, 2, "today", datetime(2026, 10, 22, 11, 10))
+        )
+
     def test_unknown_period_raises(self):
         with self.assertRaises(ValueError):
             consumption_kwh(self.samples, 2, "lifetime", self.now)
